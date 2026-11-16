@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud (WIF, optional if GEMINI_API_KEY is set)
-        if: ${{ vars.GCP_PROJECT_ID != '' && env.GCP_WIF_PROVIDER != '' }}
+       
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
