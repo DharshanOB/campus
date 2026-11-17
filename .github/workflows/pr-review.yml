@@ -79,9 +79,25 @@ jobs:
             --base "$BASE_REF" \
             --head "$HEAD_REF" \
             --out-md pr_review_summary.md \
+            --out-deterministic-md pr_4layer_report.md \
+            --out-gemini-md pr_gemini_review.md \
             --out-comments pr_review_comments.json \
             "${extra_args[@]}"
           cat pr_review_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Deterministic 4-Layer PR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-4layer-review
+          path: pr_4layer_report.md
+          retention-days: 30
+
+      - name: Upload Detailed Gemini PR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-gemini-detailed-review
+          path: pr_gemini_review.md
+          retention-days: 30
 
       - name: Post PR Summary & Inline Review Comments
         if: ${{ github.event.pull_request.number != '' || github.event.inputs.pr_number != '' }}

@@ -77,6 +77,8 @@ jobs:
             --baseline .astraea_baseline.json \
             --out-baseline .astraea_baseline.json \
             --out-md repo_review_report.md \
+            --out-deterministic-md deterministic_4layer_report.md \
+            --out-gemini-md gemini_review_report.md \
             --out-comments repo_review_comments.json \
             "${extra_args[@]}"
           cat repo_review_report.md >> "$GITHUB_STEP_SUMMARY"
@@ -88,9 +90,16 @@ jobs:
           path: .astraea_baseline.json
           key: periodic-baseline-${{ github.ref_name }}-${{ github.sha }}
 
-      - name: Upload Periodic Review Artifact
+      - name: Upload Deterministic 4-Layer Review Artifact
         uses: actions/upload-artifact@v4
         with:
           name: periodic-4layer-review
-          path: repo_review_report.md
+          path: deterministic_4layer_report.md
+          retention-days: 30
+
+      - name: Upload Detailed Gemini Review Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: periodic-gemini-detailed-review
+          path: gemini_review_report.md
           retention-days: 30
