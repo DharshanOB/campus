@@ -25,8 +25,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Authenticate to Google Cloud (WIF, optional if GEMINI_API_KEY is set)
-       
+        if: ${{ env.GCP_WIF_PROVIDER != '' && (secrets.GCP_PROJECT_ID != '' || vars.GCP_PROJECT_ID != '') }}
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
@@ -39,10 +44,11 @@ jobs:
           pip install "astraea-code-indexer[gcp] @ git+https://github.com/DharshanOB/astraea.git"
 
       - name: Restore Previous Review Baseline
-        uses: actions/cache@v4
+        id: restore-baseline
+        uses: actions/cache/restore@v4
         with:
           path: .astraea_baseline.json
-          key: periodic-baseline-${{ github.ref_name }}-${{ github.run_id }}
+          key: periodic-baseline-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
             periodic-baseline-${{ github.ref_name }}-
 
@@ -50,11 +56,19 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_GENAI_USE_VERTEXAI: ${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}
+          GEMINI_MODEL: ${{ github.event.inputs.gemini_model || vars.GEMINI_MODEL || 'gemini-4-hydrogen' }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || vars.GCP_PROJECT_ID }}
+          GCP_LOCATION: ${{ vars.GCP_LOCATION || 'global' }}
         run: |
-          MODEL="${{ github.event.inputs.gemini_model || vars.GEMINI_MODEL || 'gemini-4-hydrogen' }}"
-          EXTRA_ARGS="--gemini-model $MODEL"
-          if [ -n "${{ vars.GCP_PROJECT_ID }}" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --vertex-project ${{ vars.GCP_PROJECT_ID }} --vertex-location ${{ vars.GCP_LOCATION || 'global' }}"
+          extra_args=(--gemini-model "$GEMINI_MODEL")
+          if [ -n "$GCP_PROJECT_ID" ]; then
+            if [ -z "${GOOGLE_GENAI_USE_VERTEXAI:-}" ]; then
+              export GOOGLE_GENAI_USE_VERTEXAI="true"
+            fi
+            extra_args+=(
+              --vertex-project "$GCP_PROJECT_ID"
+              --vertex-location "$GCP_LOCATION"
+            )
           fi
           astraea-review \
             --mode repo \
@@ -63,11 +77,19 @@ jobs:
             --out-baseline .astraea_baseline.json \
             --out-md repo_review_report.md \
             --out-comments repo_review_comments.json \
-            $EXTRA_ARGS
+            "${extra_args[@]}"
           cat repo_review_report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save Updated Review Baseline
+        if: always() && hashFiles('.astraea_baseline.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .astraea_baseline.json
+          key: periodic-baseline-${{ github.ref_name }}-${{ github.sha }}
 
       - name: Upload Periodic Review Artifact
         uses: actions/upload-artifact@v4
         with:
           name: periodic-4layer-review
           path: repo_review_report.md
+          retention-days: 30
