@@ -20,7 +20,7 @@ on:
       gemini_model:
         description: "Gemini model to use"
         required: false
-        default: "gemini-2.5-flash"
+        default: "gemini-3.5-flash-lite"
 
 permissions:
   contents: read
@@ -58,7 +58,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BASE_REF: ${{ github.event.pull_request.base.sha || github.event.inputs.base_ref }}
           HEAD_REF: ${{ github.event.pull_request.head.sha || github.event.inputs.head_ref }}
-          GEMINI_MODEL: ${{ github.event.inputs.gemini_model || vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          GEMINI_MODEL: ${{ github.event.inputs.gemini_model || vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
         run: |
           astraea-review \
             --mode pr \

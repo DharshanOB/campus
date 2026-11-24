@@ -80,7 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -217,7 +217,7 @@ jobs:
                   "--out-md",
                   "pr_reply.md",
                   "--gemini-model",
-                  os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                  os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
               ],
               check=True,
           )
