@@ -1,0 +1,242 @@
+name: Astraea PR Reply (@astraea)
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-chat-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  astraea-pr-reply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
+        github.event_name == 'pull_request_review_comment'
+      ) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (
+        contains(github.event.comment.body, '@astraea') ||
+        contains(github.event.comment.body, '/astraea')
+      ) &&
+      !contains(github.event.comment.body, '<!-- astraea-pr-reply -->') &&
+      !contains(github.event.comment.body, '<!-- astraea-pr-review -->')
+    steps:
+      - name: Acknowledge Comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import subprocess
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as fh:
+              event = json.load(fh)
+          cid = event["comment"]["id"]
+          repo = os.environ["REPO"]
+          endpoint = (
+              f"repos/{repo}/pulls/comments/{cid}/reactions"
+              if os.environ["EVENT_NAME"] == "pull_request_review_comment"
+              else f"repos/{repo}/issues/comments/{cid}/reactions"
+          )
+          subprocess.run(
+              ["gh", "api", endpoint, "-f", "content=eyes"],
+              capture_output=True,
+              text=True,
+              check=False,
+          )
+          EOF
+
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install Astraea Reviewer
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install "astraea-code-indexer[gcp] @ git+https://github.com/DharshanOB/astraea.git"
+
+      - name: Generate & Post Reply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import subprocess
+
+
+          def gh_api_paginated(endpoint: str) -> list[dict]:
+              sep = "&" if "?" in endpoint else "?"
+              raw = subprocess.check_output(
+                  ["gh", "api", "--paginate", "--slurp", f"{endpoint}{sep}per_page=100"],
+                  text=True,
+              )
+              pages = json.loads(raw) if raw.strip() else []
+              items: list[dict] = []
+              for page in pages:
+                  if isinstance(page, list):
+                      items.extend(page)
+              return items
+
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as fh:
+              event = json.load(fh)
+
+          repo = os.environ["REPO"]
+          event_name = os.environ["EVENT_NAME"]
+          comment = event["comment"]
+          pr_num = (
+              event["pull_request"]["number"]
+              if event_name == "pull_request_review_comment"
+              else event["issue"]["number"]
+          )
+
+          pr_meta = json.loads(
+              subprocess.check_output(["gh", "api", f"repos/{repo}/pulls/{pr_num}"], text=True)
+          )
+          base_sha = pr_meta["base"]["sha"]
+          head_sha = pr_meta["head"]["sha"]
+          base_ref = pr_meta["base"]["ref"]
+
+          subprocess.run(
+              ["git", "fetch", "origin", f"pull/{pr_num}/head:refs/heads/astraea-pr-head"],
+              check=False,
+          )
+          subprocess.run(["git", "fetch", "origin", base_ref], check=False)
+          subprocess.run(["git", "fetch", "origin", base_sha], check=False)
+
+          head_exists = (
+              subprocess.run(
+                  ["git", "cat-file", "-e", f"{head_sha}^" + "{commit}"], check=False
+              ).returncode
+              == 0
+          )
+          head_target = head_sha if head_exists else "refs/heads/astraea-pr-head"
+          base_exists = (
+              subprocess.run(
+                  ["git", "cat-file", "-e", f"{base_sha}^" + "{commit}"], check=False
+              ).returncode
+              == 0
+          )
+          base_target = base_sha if base_exists else f"origin/{base_ref}"
+
+          issue_comments = gh_api_paginated(f"repos/{repo}/issues/{pr_num}/comments")
+          review_marker = "<!-- astraea-pr-review -->"
+          prior_review = ""
+          for c in reversed(issue_comments):
+              body = c.get("body") or ""
+              if review_marker in body:
+                  prior_review = body
+                  break
+
+          thread_history: list[dict[str, str]] = []
+          file_path = None
+          line = None
+          diff_hunk = ""
+          root_id = None
+
+          if event_name == "pull_request_review_comment":
+              root_id = comment.get("in_reply_to_id") or comment["id"]
+              pr_comments = gh_api_paginated(f"repos/{repo}/pulls/{pr_num}/comments")
+              for c in pr_comments:
+                  if c.get("id") == comment["id"]:
+                      continue
+                  if c.get("id") == root_id or c.get("in_reply_to_id") == root_id:
+                      thread_history.append(
+                          {
+                              "author": (c.get("user") or {}).get("login", "user"),
+                              "body": c.get("body") or "",
+                          }
+                      )
+              file_path = comment.get("path")
+              line = comment.get("line") or comment.get("original_line")
+              diff_hunk = comment.get("diff_hunk") or ""
+          else:
+              non_summary = [
+                  c
+                  for c in issue_comments
+                  if c.get("id") != comment["id"] and review_marker not in (c.get("body") or "")
+              ]
+              for c in non_summary[-8:]:
+                  thread_history.append(
+                      {
+                          "author": (c.get("user") or {}).get("login", "user"),
+                          "body": c.get("body") or "",
+                      }
+                  )
+
+          ctx = {
+              "question": comment.get("body") or "",
+              "prior_review": prior_review,
+              "thread_history": thread_history,
+              "file_path": file_path,
+              "line": line,
+              "diff_hunk": diff_hunk,
+          }
+          with open("reply_context.json", "w", encoding="utf-8") as fh:
+              json.dump(ctx, fh)
+
+          subprocess.run(
+              [
+                  "astraea-review",
+                  "--mode",
+                  "reply",
+                  "--repo",
+                  ".",
+                  "--base",
+                  base_target,
+                  "--head",
+                  head_target,
+                  "--reply-context-json",
+                  "reply_context.json",
+                  "--out-md",
+                  "pr_reply.md",
+                  "--gemini-model",
+                  os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+              ],
+              check=True,
+          )
+
+          with open("pr_reply.md", encoding="utf-8") as fh:
+              reply_body = fh.read().strip()
+          reply_marker = "<!-- astraea-pr-reply -->"
+          if reply_marker not in reply_body:
+              reply_body = f"{reply_marker}\n{reply_body}"
+
+          post_endpoint = (
+              f"repos/{repo}/pulls/{pr_num}/comments/{root_id}/replies"
+              if event_name == "pull_request_review_comment"
+              else f"repos/{repo}/issues/{pr_num}/comments"
+          )
+          subprocess.run(
+              ["gh", "api", post_endpoint, "--input", "-"],
+              input=json.dumps({"body": reply_body}),
+              text=True,
+              check=True,
+          )
+          EOF
