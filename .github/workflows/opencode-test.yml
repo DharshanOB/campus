@@ -1,0 +1,40 @@
+name: OpenCode OIDC Test
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  opencode-oidc-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sign in to OpenCode
+        env:
+          AUDIENCE: https://opencode.ai/console
+        run: |
+          oidc=$(curl -sSf --oauth2-bearer "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" | jq -r .value)
+          token=$(curl -sSf https://opencode.ai/console/auth/oauth/token \
+            -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+            -d subject_token_type=urn:ietf:params:oauth:token-type:jwt \
+            -d client_id=sk_abd545fd-6b67-48cd-beb9-eee6159ca921 \
+            -d subject_token="$oidc" | jq -r .access_token)
+          echo "::add-mask::$token"
+          echo "OPENCODE_API_KEY=$token" >> "$GITHUB_ENV"
+
+      - name: Verify OpenCode API Key
+        run: |
+          if [ -z "$OPENCODE_API_KEY" ] || [ "$OPENCODE_API_KEY" = "null" ]; then
+            echo "::error::Failed to obtain OPENCODE_API_KEY via OIDC token exchange."
+            exit 1
+          fi
+          echo "OPENCODE_API_KEY acquired (length=${#OPENCODE_API_KEY})."
+          models_count=$(curl -sSf -H "Authorization: Bearer $OPENCODE_API_KEY" \
+            https://opencode.ai/inference/v1/models | jq -r '.data | length')
+          echo "OpenCode inference models available: $models_count"
