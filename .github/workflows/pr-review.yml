@@ -18,9 +18,9 @@ on:
         required: false
         default: ""
       gemini_model:
-        description: "Gemini model to use"
+        description: "Model to use (e.g. opencode/big-pickle, gemini-3.5-flash-lite)"
         required: false
-        default: "gemini-3.5-flash-lite"
+        default: "opencode/big-pickle"
 
 permissions:
   id-token: write
@@ -73,13 +73,28 @@ jobs:
             echo "OPENCODE_API_KEY=$token" >> "$GITHUB_ENV"
           fi
 
+      - name: Install OpenCode CLI
+        if: env.OPENCODE_API_KEY != ''
+        run: |
+          if ! command -v opencode >/dev/null 2>&1; then
+            curl -fsSL https://opencode.ai/v2/install | bash -s -- --no-modify-path
+            echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          fi
+
       - name: Run 4-Layer PR Analysis & Gemini Review
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BASE_REF: ${{ github.event.pull_request.base.sha || github.event.inputs.base_ref }}
           HEAD_REF: ${{ github.event.pull_request.head.sha || github.event.inputs.head_ref }}
-          GEMINI_MODEL: ${{ github.event.inputs.gemini_model || vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
+          GEMINI_MODEL: ${{ github.event.inputs.gemini_model || vars.GEMINI_MODEL || '' }}
         run: |
+          if [ -z "$GEMINI_MODEL" ]; then
+            if [ -n "${OPENCODE_API_KEY:-}" ]; then
+              GEMINI_MODEL="opencode/big-pickle"
+            else
+              GEMINI_MODEL="gemini-3.5-flash-lite"
+            fi
+          fi
           astraea-review \
             --mode pr \
             --repo . \
