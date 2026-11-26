@@ -7,6 +7,7 @@ on:
     types: [created]
 
 permissions:
+  id-token: write
   contents: read
   issues: write
   pull-requests: write
@@ -75,6 +76,24 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           pip install "astraea-code-indexer[gcp] @ git+https://github.com/DharshanOB/astraea.git"
+
+      - name: Sign in to OpenCode
+        continue-on-error: true
+        env:
+          AUDIENCE: https://opencode.ai/console
+        run: |
+          set -o pipefail
+          oidc=$(curl -sSf --oauth2-bearer "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" | jq -r .value)
+          token=$(curl -sSf https://opencode.ai/console/auth/oauth/token \
+            -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+            -d subject_token_type=urn:ietf:params:oauth:token-type:jwt \
+            -d client_id=sk_abd545fd-6b67-48cd-beb9-eee6159ca921 \
+            -d subject_token="$oidc" | jq -r .access_token)
+          if [ -n "$token" ] && [ "$token" != "null" ]; then
+            echo "::add-mask::$token"
+            echo "OPENCODE_API_KEY=$token" >> "$GITHUB_ENV"
+          fi
 
       - name: Generate & Post Reply
         env:
