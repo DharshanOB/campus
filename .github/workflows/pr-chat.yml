@@ -247,7 +247,7 @@ jobs:
                   (
                       os.environ.get("GEMINI_MODEL", "").strip()
                       or (
-                          "opencode/big-pickle"
+                          "opencode-go/beam-free"
                           if os.environ.get("OPENCODE_API_KEY")
                           else "gemini-3.5-flash-lite"
                       )

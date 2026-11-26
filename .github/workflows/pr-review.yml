@@ -18,9 +18,9 @@ on:
         required: false
         default: ""
       gemini_model:
-        description: "Model to use (e.g. opencode/big-pickle, gemini-3.5-flash-lite)"
+        description: "Model to use (e.g. opencode-go/beam-free, gemini-3.5-flash-lite)"
         required: false
-        default: "opencode/big-pickle"
+        default: "opencode-go/beam-free"
 
 permissions:
   id-token: write
@@ -90,7 +90,7 @@ jobs:
         run: |
           if [ -z "$GEMINI_MODEL" ]; then
             if [ -n "${OPENCODE_API_KEY:-}" ]; then
-              GEMINI_MODEL="opencode/big-pickle"
+              GEMINI_MODEL="opencode-go/beam-free"
             else
               GEMINI_MODEL="gemini-3.5-flash-lite"
             fi
